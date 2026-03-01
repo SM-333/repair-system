@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>New Repair</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+</head>
+<body>
+
+<h2>Create Repair</h2>
+
+<input id="name" placeholder="Customer Name"><br><br>
+<input id="phone" placeholder="Phone Number"><br><br>
+
+<button onclick="createRepair()">Create Repair</button>
+
+<div id="result"></div>
+
+<script>
+const supabase = window.supabase.createClient(
+  "https://qedqzmhorbanspbeikvo.supabase.co",
+  "sb_publishable_1DbnJIJzSeWLQ8Nh1eKC9Q_Pb-NHJW5"
+);
+
+async function createRepair() {
+  const name = document.getElementById("name").value;
+  const phone = document.getElementById("phone").value.replace(/\D/g,'');
+
+  // Check if customer exists
+  let { data: customer } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('phone', phone)
+    .single();
+
+  if (!customer) {
+    let { data: newCustomer } = await supabase
+      .from('customers')
+      .insert({ name, phone })
+      .select()
+      .single();
+    customer = newCustomer;
+  }
+
+  const repairId = phone + "-" + Date.now();
+
+  await supabase.from('repairs').insert({
+    repair_id: repairId,
+    customer_id: customer.id
+  });
+
+  const repairUrl = window.location.origin + "/repair.html?id=" + repairId;
+
+  document.getElementById("result").innerHTML = `
+    <h3>${repairId}</h3>
+    <canvas id="qr"></canvas>
+    <br><br>
+    <button onclick="window.print()">Print Label</button>
+  `;
+
+  QRCode.toCanvas(document.getElementById("qr"), repairUrl);
+}
+</script>
+
+</body>
+</html>

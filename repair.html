@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Repair</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<h2>Repair Details</h2>
+<div id="info"></div>
+
+<button onclick="updateStatus('Ready')">Mark Ready</button>
+<button onclick="updateStatus('Collected')">Mark Collected</button>
+<button onclick="sendSMS()">Send SMS</button>
+
+<script>
+const supabase = window.supabase.createClient(
+  "YOUR_SUPABASE_URL",
+  "YOUR_PUBLIC_ANON_KEY"
+);
+
+const urlParams = new URLSearchParams(window.location.search);
+const repairId = urlParams.get('id');
+
+let phone = "";
+
+async function loadRepair() {
+  const { data } = await supabase
+    .from('repairs')
+    .select('*, customers(*)')
+    .eq('repair_id', repairId)
+    .single();
+
+  phone = data.customers.phone;
+
+  document.getElementById("info").innerHTML = `
+    <p>Name: ${data.customers.name}</p>
+    <p>Phone: ${phone}</p>
+    <p>Status: ${data.status}</p>
+  `;
+}
+
+async function updateStatus(status) {
+  await supabase
+    .from('repairs')
+    .update({ status })
+    .eq('repair_id', repairId);
+
+  loadRepair();
+}
+
+function sendSMS() {
+  window.location.href = "sms:" + phone;
+}
+
+loadRepair();
+</script>
+
+</body>
+</html>
