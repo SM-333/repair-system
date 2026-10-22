@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign in - Repair Shop</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="app.css">
+  <script src="lib.js"></script>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h2>Repair Shop Login</h2>
+
+  <div id="err" class="error"></div>
+
+  <label for="email">Email</label>
+  <input id="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="shop@1">
+
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password" placeholder="Password">
+
+  <button id="loginBtn" onclick="doLogin()">Sign in</button>
+
+  <p class="muted" style="text-align:center;margin-top:20px;">
+    Shop staff use the account given to them by the owner.
+  </p>
+
+</div>
+
+<script>
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+const errBox = document.getElementById("err");
+
+// Already signed in? Go straight to the shop home.
+if (isSignedIn()) {
+  window.location.replace("index.html");
+}
+
+function setError(msg) {
+  errBox.textContent = msg || "";
+}
+
+function setBusy(busy) {
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = busy;
+  btn.textContent = busy ? "Signing in..." : "Sign in";
+}
+
+async function doLogin() {
+  setError("");
+  const email = emailInput.value.trim().toLowerCase();
+  const password = passwordInput.value;
+
+  if (!email || !password) {
+    setError("Enter your email and password.");
+    return;
+  }
+
+  setBusy(true);
+  const res = await signIn(email, password);
+  setBusy(false);
+
+  if (!res.ok) {
+    const msg = res.error || "";
+    if (msg.indexOf("Invalid login credentials") > -1) {
+      setError("Wrong email or password.");
+    } else if (msg.indexOf("Email not confirmed") > -1) {
+      setError("This account is not activated yet. Ask the owner to confirm it.");
+    } else if (msg.indexOf("email") > -1 && msg.indexOf("invalid") > -1) {
+      setError("That email address is not valid.");
+    } else {
+      setError(msg || "Sign in failed.");
+    }
+    passwordInput.value = "";
+    passwordInput.focus();
+    return;
+  }
+
+  window.location.replace("index.html");
+}
+
+passwordInput.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") doLogin();
+});
+
+emailInput.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") passwordInput.focus();
+});
+
+emailInput.focus();
+</script>
+
+</body>
+</html>

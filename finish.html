@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Finish Repair</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="app.css">
+  <script src="lib.js"></script>
+</head>
+
+<body>
+
+<div class="topbar">
+  <span class="brand">REPAIR SHOP</span>
+  <button class="secondary" onclick="location.href='index.html'">Back</button>
+</div>
+
+<div class="container">
+
+  <h2>Finish Repair</h2>
+
+  <p class="muted">Scan the barcode on the label, or type the Repair ID (e.g. ZAB-LC106).</p>
+
+  <div class="grid-2" style="grid-template-columns:1fr auto;">
+    <input id="searchInput" placeholder="Repair ID" autocapitalize="characters" style="margin:0;">
+    <button id="searchBtn" style="width:auto;margin:0;padding-left:18px;padding-right:18px;" onclick="doSearch()">Find</button>
+  </div>
+
+  <div id="err" class="error"></div>
+
+  <div id="repairView"><div class="loading">Waiting for a repair to be scanned...</div></div>
+
+</div>
+
+<script>
+if (!requireSignIn()) {
+  throw new Error("not signed in");
+}
+
+const searchInput = document.getElementById("searchInput");
+const errBox = document.getElementById("err");
+const view = document.getElementById("repairView");
+
+let current = null;
+
+// A scanner types the code and fires Enter, so this covers both flows.
+searchInput.addEventListener("keydown", function (e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    doSearch();
+  }
+});
+
+function setError(msg) {
+  errBox.textContent = msg || "";
+}
+
+async function doSearch() {
+  const repairId = repairIdFrom(searchInput.value);
+
+  if (!repairId) {
+    setError("Type or scan a Repair ID first.");
+    return;
+  }
+
+  setError("");
+  view.innerHTML = '<div class="loading">Loading repair...</div>';
+
+  const res = await api(
+    "repairs?select=*,customers(*)&repair_id=eq." + encodeURIComponent(repairId)
+  );
+
+  if (!res.ok) {
+    view.innerHTML = "";
+    setError("Could not load the repair. " + (res.message || "Please try again."));
+    return;
+  }
+
+  if (!res.data || !res.data.length) {
+    view.innerHTML = "";
+    setError("No repair found with that ID. Check the label and try again.");
+    return;
+  }
+
+  current = res.data[0];
+  render(current);
+}
+
+function render(r) {
+  const c = r.customers || {};
+  const done = r.status === "Collected";
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row"><span>Repair ID</span><strong>${esc(r.repair_id)}</strong></div>
+      <div class="row"><span>Repair Type</span><strong>${esc(r.repair_type || "-")}</strong></div>
+      <div class="row"><span>Status</span><span class="badge ${done ? "done" : ""}">${esc(r.status)}</span></div>
+      <div class="row"><span>Customer</span><strong>${esc(c.name || "-")}</strong></div>
+      <div class="row"><span>Phone</span><strong>${esc(c.phone || "-")}</strong></div>
+      <div class="row"><span>Amount</span><strong>${gbp(r.amount)}</strong></div>
+      ${r.notes ? `<div class="row"><span>Notes</span><span>${esc(r.notes)}</span></div>` : ""}
+      <div class="row"><span>Created</span><span>${esc(fmtDate(r.created_at))}</span></div>
+    </div>
+
+    <button id="finishBtn" onclick="complete('Repair Finish')">Repair Finish</button>
+    <button id="paidBtn" class="secondary" onclick="complete('Customer Paid')">Customer Paid</button>
+
+    <p class="muted" style="text-align:center;margin-top:15px;">
+      Both buttons mark the repair as collected and stamp the time.
+    </p>
+  `;
+
+  if (done) {
+    const f = document.getElementById("finishBtn");
+    const p = document.getElementById("paidBtn");
+    f.disabled = true;
+    p.disabled = true;
+    f.textContent = "Already Completed";
+    p.textContent = "Already Completed";
+  }
+}
+
+async function complete(label) {
+  if (!current) return;
+
+  const btn = event && event.target;
+  if (btn) btn.disabled = true;
+
+  const res = await api("repairs?repair_id=eq." + encodeURIComponent(current.repair_id), {
+    method: "PATCH",
+    body: { status: "Collected", collected_at: new Date().toISOString() }
+  });
+
+  if (!res.ok) {
+    setError(label + " failed. " + (res.message || "Please try again."));
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  setError("");
+  view.innerHTML = `
+    <div class="card" style="text-align:center;">
+      <p><strong style="font-size:18px;">${esc(label)} - Done</strong></p>
+      <p>${esc(current.repair_id)} is now marked as collected.</p>
+      <p class="muted">${esc(fmtDate(new Date().toISOString()))}</p>
+    </div>
+    <button class="secondary" onclick="resetForNext()">Next Repair</button>
+  `;
+}
+
+function resetForNext() {
+  current = null;
+  searchInput.value = "";
+  setError("");
+  view.innerHTML = '<div class="loading">Waiting for a repair to be scanned...</div>';
+  searchInput.focus();
+}
+
+searchInput.focus();
+</script>
+
+</body>
+</html>

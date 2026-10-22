@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>New Repair</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="app.css">
+  <script src="lib.js"></script>
+</head>
+
+<body>
+
+<div class="topbar">
+  <span class="brand">REPAIR SHOP</span>
+  <button class="secondary" onclick="location.href='index.html'">Back</button>
+</div>
+
+<div class="container">
+  <h2>New Repair</h2>
+
+  <div id="err" class="error"></div>
+
+  <label for="name">Customer Name</label>
+  <input id="name" placeholder="e.g. John Smith">
+
+  <label for="phone">Phone Number</label>
+  <input id="phone" inputmode="tel" autocomplete="tel" placeholder="e.g. 07700 900123">
+
+  <label>Repair Type</label>
+  <div class="grid-2" id="typeGrid"></div>
+
+  <label for="amount">Amount (&pound;)</label>
+  <input id="amount" inputmode="decimal" placeholder="e.g. 45">
+
+  <label for="notes">Notes (optional)</label>
+  <textarea id="notes" placeholder="Device model, condition, deposit taken..."></textarea>
+
+  <button id="submitBtn" onclick="createRepair()">Create Repair</button>
+  <button class="secondary" onclick="location.href='index.html'">Cancel</button>
+</div>
+
+<!-- Label preview + actions, filled in after the repair is saved -->
+<div id="result"></div>
+
+<script>
+if (!requireSignIn()) {
+  throw new Error("not signed in");
+}
+
+const typeGrid = document.getElementById("typeGrid");
+let selectedType = "";
+
+// Build the type buttons from the one shared list in lib.js.
+REPAIR_TYPES.forEach(function (t) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "type-btn";
+  b.textContent = t;
+  b.onclick = function () {
+    selectType(t);
+  };
+  typeGrid.appendChild(b);
+});
+
+function selectType(name) {
+  selectedType = name;
+  Array.prototype.forEach.call(typeGrid.children, function (b) {
+    b.classList.toggle("active", b.textContent === name);
+  });
+}
+
+function setError(msg) {
+  document.getElementById("err").textContent = msg || "";
+}
+
+function setBusy(busy) {
+  const btn = document.getElementById("submitBtn");
+  btn.disabled = busy;
+  btn.textContent = busy ? "Saving..." : "Create Repair";
+}
+
+async function createRepair() {
+  setError("");
+
+  const name = document.getElementById("name").value.trim();
+  const phone = document.getElementById("phone").value.replace(/\D/g, "");
+  const amount = moneyValue(document.getElementById("amount").value);
+  const notes = document.getElementById("notes").value.trim();
+
+  if (!name) { setError("Enter the customer name."); return; }
+  if (!phone) { setError("Enter the phone number."); return; }
+  if (!selectedType) { setError("Pick a repair type."); return; }
+
+  setBusy(true);
+
+  try {
+    // 1. Find the customer by phone, or create them.
+    let customerId = null;
+    const found = await api("customers?select=id,name&phone=eq." + encodeURIComponent(phone));
+
+    if (found.ok && found.data && found.data.length) {
+      customerId = found.data[0].id;
+      // Keep the stored name in sync with what was typed this time.
+      if (found.data[0].name !== name) {
+        await api("customers?id=eq." + encodeURIComponent(customerId), {
+          method: "PATCH",
+          body: { name: name }
+        });
+      }
+    } else {
+      const created = await api("customers", {
+        method: "POST",
+        body: { name: name, phone: phone }
+      });
+      if (!created.ok) {
+        setError("Could not save the customer. " + created.message);
+        setBusy(false);
+        return;
+      }
+      customerId = created.data[0].id;
+    }
+
+    // 2. Generate a label-friendly repair ID: ZAB-<type code><3 digits>
+    let repairId = "";
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const candidate = makeRepairId(selectedType);
+      const check = await api("repairs?select=repair_id&repair_id=eq." + encodeURIComponent(candidate));
+      if (check.ok && (!check.data || !check.data.length)) {
+        repairId = candidate;
+        break;
+      }
+    }
+    if (!repairId) {
+      setError("Could not generate a repair ID. Try again.");
+      setBusy(false);
+      return;
+    }
+
+    // 3. Save the repair.
+    const saved = await api("repairs", {
+      method: "POST",
+      body: {
+        repair_id: repairId,
+        customer_id: customerId,
+        status: "Received",
+        amount: amount,
+        notes: notes,
+        repair_type: selectedType
+      }
+    });
+
+    if (!saved.ok) {
+      // repair_type may not exist in the table yet - save without it.
+      const errText = String(saved.message || "") + " " + JSON.stringify(saved.data || "");
+      if (errText.indexOf("repair_type") > -1 || errText.indexOf("column") > -1) {
+        const retry = await api("repairs", {
+          method: "POST",
+          body: {
+            repair_id: repairId,
+            customer_id: customerId,
+            status: "Received",
+            amount: amount,
+            notes: notes ? notes + " [" + selectedType + "]" : "[" + selectedType + "]"
+          }
+        });
+        if (!retry.ok) {
+          setError("Could not save the repair. " + retry.message);
+          setBusy(false);
+          return;
+        }
+      } else {
+        setError("Could not save the repair. " + saved.message);
+        setBusy(false);
+        return;
+      }
+    }
+
+    showResult({
+      name: name,
+      type: selectedType,
+      amount: amount,
+      repairId: repairId
+    });
+
+    document.getElementById("name").value = "";
+    document.getElementById("phone").value = "";
+    document.getElementById("amount").value = "";
+    document.getElementById("notes").value = "";
+    selectType("");
+  } catch (e) {
+    setError("Something went wrong: " + (e && e.message ? e.message : "unknown error"));
+  }
+
+  setBusy(false);
+}
+
+function showResult(r) {
+  document.getElementById("result").innerHTML = `
+    <div class="container" style="padding-top:0;">
+      <div class="card">
+        <p><strong>Repair saved</strong></p>
+        <div class="row"><span>Repair ID</span><strong>${esc(r.repairId)}</strong></div>
+        <div class="row"><span>Customer</span><strong>${esc(r.name)}</strong></div>
+        <div class="row"><span>Type</span><strong>${esc(r.type)}</strong></div>
+        <div class="row"><span>Amount</span><strong>${gbp(r.amount)}</strong></div>
+      </div>
+
+      <h2 style="margin-top:20px;">Label</h2>
+      <div class="card"><canvas id="labelCanvas"></canvas></div>
+
+      <button onclick='printLabel(${JSON.stringify(r.type)}, ${JSON.stringify(r.name)}, ${JSON.stringify(r.repairId)})'>Print Label</button>
+      <button class="secondary" onclick="makeAnother()">Create Another Repair</button>
+      <button class="secondary" onclick="location.href='index.html'">Done</button>
+    </div>
+  `;
+
+  drawLabel(document.getElementById("labelCanvas"), r.type, r.name, r.repairId);
+}
+
+function makeAnother() {
+  document.getElementById("result").innerHTML = "";
+  document.getElementById("name").focus();
+}
+</script>
+
+</body>
+</html>

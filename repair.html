@@ -1,59 +1,76 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Repair</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <meta charset="UTF-8">
+  <title>Public Repair Status</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="app.css">
+  <script src="lib.js"></script>
 </head>
+
 <body>
 
-<h2>Repair Details</h2>
-<div id="info"></div>
+<div class="container">
 
-<button onclick="updateStatus('Ready')">Mark Ready</button>
-<button onclick="updateStatus('Collected')">Mark Collected</button>
-<button onclick="sendSMS()">Send SMS</button>
+  <h2>Repair Status</h2>
+
+  <div id="view"><div class="loading">Loading...</div></div>
+
+</div>
 
 <script>
-const supabase = window.supabase.createClient(
-  "YOUR_SUPABASE_URL",
-  "YOUR_PUBLIC_ANON_KEY"
-);
+// No login here: this is the page a customer lands on after scanning the label.
+const params = new URLSearchParams(window.location.search);
+const repairId = repairIdFrom(params.get("id"));
 
-const urlParams = new URLSearchParams(window.location.search);
-const repairId = urlParams.get('id');
+if (!repairId) {
+  document.getElementById("view").innerHTML =
+    '<div class="card"><p>No repair reference found in this link.</p></div>';
+} else {
+  loadRepair(repairId);
+}
 
-let phone = "";
+async function loadRepair(id) {
+  const view = document.getElementById("view");
 
-async function loadRepair() {
-  const { data } = await supabase
-    .from('repairs')
-    .select('*, customers(*)')
-    .eq('repair_id', repairId)
-    .single();
+  const res = await api(
+    "repairs?select=*,customers(*)&repair_id=eq." + encodeURIComponent(id)
+  );
 
-  phone = data.customers.phone;
+  if (!res.ok || !res.data || !res.data.length) {
+    view.innerHTML =
+      '<div class="card"><p>We could not find that repair. Please check the number on your label.</p></div>';
+    return;
+  }
 
-  document.getElementById("info").innerHTML = `
-    <p>Name: ${data.customers.name}</p>
-    <p>Phone: ${phone}</p>
-    <p>Status: ${data.status}</p>
+  const r = res.data[0];
+  const c = r.customers || {};
+
+  const steps = ["Received", "In Progress", "Ready", "Collected"];
+  const current = steps.indexOf(r.status);
+  const stepHtml = steps
+    .map(function (s, i) {
+      const cls = i <= current ? "badge" : "badge done";
+      return '<span class="' + cls + '">' + esc(s) + "</span>";
+    })
+    .join(" &rarr; ");
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row"><span>Repair ID</span><strong>${esc(r.repair_id)}</strong></div>
+      <div class="row"><span>Repair Type</span><strong>${esc(r.repair_type || "-")}</strong></div>
+      <div class="row"><span>Status</span><strong>${esc(r.status)}</strong></div>
+      ${r.notes ? `<div class="row"><span>Notes</span><span>${esc(r.notes)}</span></div>` : ""}
+      <div class="row"><span>Created</span><span>${esc(fmtDate(r.created_at))}</span></div>
+    </div>
+
+    <p style="text-align:center;">${stepHtml}</p>
+
+    <p class="muted" style="text-align:center;">
+      We will contact ${esc(c.phone || "you")} when your repair is ready.
+    </p>
   `;
 }
-
-async function updateStatus(status) {
-  await supabase
-    .from('repairs')
-    .update({ status })
-    .eq('repair_id', repairId);
-
-  loadRepair();
-}
-
-function sendSMS() {
-  window.location.href = "sms:" + phone;
-}
-
-loadRepair();
 </script>
 
 </body>
