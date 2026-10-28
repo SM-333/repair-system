@@ -70,6 +70,71 @@ function repairUrl(repairId) {
   return window.location.origin + "/repair.html?id=" + encodeURIComponent(repairId);
 }
 
+// ------------------------------------------------------------ modal dialog
+
+// One modal helper, used by every page that needs to show a message with a
+// Print button. Pass an array of action buttons; the first one is primary.
+function showModal(opts) {
+  closeModal();
+
+  const actions = opts.actions || [];
+  const buttons = actions
+    .map(function (a, i) {
+      return (
+        '<button class="' + (i === 0 ? "primary" : "secondary") + '"' +
+        ' data-action="' + i + '">' + esc(a.label) + "</button>"
+      );
+    })
+    .join("");
+
+  const html =
+    '<div class="modal-backdrop" data-modal>' +
+      '<div class="modal-box" role="dialog" aria-modal="true">' +
+        (opts.title ? "<h3>" + esc(opts.title) + "</h3>" : "") +
+        (opts.bodyHtml || "") +
+        (buttons ? '<div class="modal-actions">' + buttons + "</div>" : "") +
+      "</div>" +
+    "</div>";
+
+  document.body.insertAdjacentHTML("beforeend", html);
+
+  const box = document.querySelector("[data-modal]");
+
+  // Action buttons
+  box.querySelectorAll("[data-action]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const action = actions[Number(btn.getAttribute("data-action"))];
+      if (action && action.onClick) {
+        // Let the handler close the modal itself when it wants to.
+        action.onClick();
+      }
+      if (!action || action.keepOpen !== true) {
+        closeModal();
+      }
+    });
+  });
+
+  // Escape key closes it
+  document.addEventListener("keydown", escapeCloses);
+
+  // Focus the first action button so Enter works straight away.
+  const firstBtn = box.querySelector("[data-action]");
+  if (firstBtn) firstBtn.focus();
+
+  return box;
+}
+
+function escapeCloses(e) {
+  if (e.key === "Escape") closeModal();
+}
+
+function closeModal() {
+  document.querySelectorAll("[data-modal]").forEach(function (m) {
+    m.remove();
+  });
+  document.removeEventListener("keydown", escapeCloses);
+}
+
 // --------------------------------------------------------------------- api
 
 // Send the login token when we have one, otherwise fall back to the anon key.
@@ -223,4 +288,42 @@ function printLabel(type, name, repairId) {
   ].join("\n"));
 
   w.document.close();
+}
+
+// Centred summary shown after a repair is finished: the details, the barcode and
+// a Print button. Built from the live row so it always matches what was saved.
+// `onNext` is the page's own reset routine, called by the Next Repair button.
+function showDoneModal(repair, label, onNext) {
+  const c = repair.customers || {};
+
+  showModal({
+    title: label + " - Done",
+    bodyHtml: `
+      <div class="modal-rows">
+        <div class="row"><span>Repair ID</span><strong>${esc(repair.repair_id)}</strong></div>
+        <div class="row"><span>Repair Type</span><strong>${esc(repair.repair_type || "-")}</strong></div>
+        <div class="row"><span>Customer</span><strong>${esc(c.name || "-")}</strong></div>
+        <div class="row"><span>Phone</span><strong>${esc(c.phone || "-")}</strong></div>
+        <div class="row"><span>Amount</span><strong>${gbp(repair.amount)}</strong></div>
+        <div class="row"><span>Collected</span><span>${esc(fmtDate(repair.collected_at))}</span></div>
+      </div>
+      <div class="modal-barcode">
+        <canvas id="doneLabelCanvas"></canvas>
+        <p class="modal-code">${esc(repair.repair_id)}</p>
+      </div>
+    `,
+    actions: [
+      { label: "Print", onClick: function () {
+          printLabel(repair.repair_type || "", c.name || "", repair.repair_id);
+        } },
+      { label: "Next Repair", onClick: onNext }
+    ]
+  });
+
+  drawLabel(
+    document.getElementById("doneLabelCanvas"),
+    repair.repair_type || "",
+    c.name || "",
+    repair.repair_id
+  );
 }

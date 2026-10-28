@@ -126,9 +126,11 @@ async function complete(label) {
   const btn = event && event.target;
   if (btn) btn.disabled = true;
 
+  const now = new Date().toISOString();
+
   const res = await api("repairs?repair_id=eq." + encodeURIComponent(current.repair_id), {
     method: "PATCH",
-    body: { status: "Collected", collected_at: new Date().toISOString() }
+    body: { status: "Collected", collected_at: now }
   });
 
   if (!res.ok) {
@@ -138,14 +140,14 @@ async function complete(label) {
   }
 
   setError("");
-  view.innerHTML = `
-    <div class="card" style="text-align:center;">
-      <p><strong style="font-size:18px;">${esc(label)} - Done</strong></p>
-      <p>${esc(current.repair_id)} is now marked as collected.</p>
-      <p class="muted">${esc(fmtDate(new Date().toISOString()))}</p>
-    </div>
-    <button class="secondary" onclick="resetForNext()">Next Repair</button>
-  `;
+
+  // Show the saved row back with its barcode in a centred dialog.
+  const done = Object.assign({}, current, {
+    status: "Collected",
+    collected_at: now
+  });
+
+  showDoneModal(done, label, resetForNext);
 }
 
 function resetForNext() {
